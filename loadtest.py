@@ -29,12 +29,13 @@ import asyncio
 import json
 import os
 import statistics
-import subprocess
+import tempfile
 import time
 from pathlib import Path
 
 import httpx
 import numpy as np
+import soundfile as sf
 import torch
 
 # ---------------------------------------------------------------------------
@@ -47,7 +48,13 @@ STT_MODEL = os.environ.get("STT_MODEL", "whisper-large-v3-turbo")
 TTS_VOICE = os.environ.get("TTS_VOICE", "kseniya")
 TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
 
-INPUTS_DIR = Path(os.environ.get("LOADTEST_INPUTS", "/tmp/loadtest_inputs"))
+INPUTS_DIR = Path(
+    os.environ.get("LOADTEST_INPUTS", Path(tempfile.gettempdir()) / "loadtest_inputs")
+)
+# Voice used to synthesize the *inputs*. Kept separate from TTS_VOICE so the
+# input audio is distinguishable from what the bot produces. Falls back to
+# TTS_VOICE if the requested speaker isn't in the loaded model.
+INPUT_VOICE = os.environ.get("LOADTEST_INPUT_VOICE", "baya")
 
 PROMPTS_RU = [
     # ~100-char Russian prompts (15-18 words, ~6-8s of speech).
@@ -69,26 +76,24 @@ SYSTEM_PROMPT_RU = (
 # ---------------------------------------------------------------------------
 # Input preparation
 
-def prepare_inputs() -> list[Path]:
-    """Generate Russian test WAVs with macOS `say -v Milena` if not cached."""
+def prepare_inputs(model) -> list[Path]:
+    """Synthesize Russian test WAVs with Silero (cross-platform, cached)."""
     INPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    speaker = INPUT_VOICE if INPUT_VOICE in model.speakers else model.speakers[0]
     wavs: list[Path] = []
     for i, text in enumerate(PROMPTS_RU):
         wav = INPUTS_DIR / f"prompt_{i:02d}.wav"
         if not wav.exists():
-            aiff = INPUTS_DIR / f"prompt_{i:02d}.aiff"
-            print(f"  generating {wav.name}: {text}")
-            subprocess.run(
-                ["say", "-v", "Milena", text, "-o", str(aiff)],
-                check=True,
+            print(f"  generating {wav.name} (voice={speaker}): {text}")
+            audio = model.apply_tts(
+                text=text,
+                speaker=speaker,
+                sample_rate=TTS_SAMPLE_RATE,
+                put_accent=True,
+                put_yo=True,
             )
-            subprocess.run(
-                ["afconvert", "-f", "WAVE", "-d", "LEI16@16000",
-                 "-c", "1", str(aiff), str(wav)],
-                check=True,
-                stdout=subprocess.DEVNULL,
-            )
-            aiff.unlink(missing_ok=True)
+            arr = np.asarray(audio.detach().cpu().numpy(), dtype=np.float32)
+            sf.write(wav, arr, TTS_SAMPLE_RATE, subtype="PCM_16")
         wavs.append(wav)
     return wavs
 
@@ -97,11 +102,17 @@ def prepare_inputs() -> list[Path]:
 # Silero loading (reuses helpers from silero_tts_service)
 
 def load_silero():
-    from silero_tts_service import DEFAULT_CACHE, DEFAULT_MODEL_URL, _ensure_model
+    from silero_tts_service import (
+        DEFAULT_CACHE,
+        DEFAULT_MODEL_URL,
+        _ensure_model,
+        _resolve_device,
+    )
     local = _ensure_model(DEFAULT_MODEL_URL, DEFAULT_CACHE)
-    print(f"  loading silero from {local}")
+    device = _resolve_device(None)
+    print(f"  loading silero from {local} on {device}")
     model = torch.package.PackageImporter(str(local)).load_pickle("tts_models", "model")
-    model.to(torch.device("cpu"))
+    model.to(torch.device(device))
     return model
 
 
@@ -337,12 +348,12 @@ def print_summary_table(all_results: dict[int, list[dict]]) -> None:
 
 
 async def amain(args: argparse.Namespace) -> None:
-    print("=== preparing inputs ===")
-    wavs = prepare_inputs()
-    print(f"  {len(wavs)} prompts ready")
-
     print("=== loading silero ===")
     model = await asyncio.to_thread(load_silero)
+
+    print("=== preparing inputs ===")
+    wavs = await asyncio.to_thread(prepare_inputs, model)
+    print(f"  {len(wavs)} prompts ready in {INPUTS_DIR}")
 
     tts_lock = asyncio.Lock()
 

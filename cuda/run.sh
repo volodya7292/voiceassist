@@ -24,7 +24,23 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "[cuda] syncing project deps (torch, pyaudio, pipecat, ...)"
-uv sync --quiet
+uv sync
+
+# Fast-fail if a critical import is missing — better here than 30s later
+# after docker compose spins everything up.
+if ! uv run python -c "import torch, pyaudio, pipecat" 2>/dev/null; then
+    echo "[cuda] critical imports failed — running diagnostic:" >&2
+    uv run python -c "
+import importlib, traceback
+for mod in ('torch', 'pyaudio', 'pipecat'):
+    try:
+        importlib.import_module(mod)
+        print(f'  OK   {mod}')
+    except Exception as e:
+        print(f'  FAIL {mod}: {type(e).__name__}: {e}')
+" >&2
+    exit 1
+fi
 
 echo "[cuda] starting whisper + ollama via docker compose..."
 docker compose -f "$COMPOSE_FILE" up -d

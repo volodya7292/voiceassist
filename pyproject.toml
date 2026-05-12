@@ -12,6 +12,9 @@ dependencies = [
     "soundfile>=0.12",
     "numpy>=1.26",
     "httpx>=0.27",
+    # Explicit so it's resolved on every platform. torchaudio depends on torch
+    # but uv's cross-platform locking has been flaky leaving torch out on Windows.
+    "torch>=2.11.0",
     "torchaudio>=2.11.0",
 
     # Apple Silicon-only: MLX backend for the local Whisper server.

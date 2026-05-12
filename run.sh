@@ -32,7 +32,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "[run] syncing project deps"
-uv sync --quiet
+uv sync
 
 echo "[run] starting whisper server on :8000"
 uv run uvicorn servers.whisper_server:app \

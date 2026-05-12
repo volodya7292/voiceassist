@@ -83,7 +83,7 @@ export WHISPER_URL="${WHISPER_URL:-http://127.0.0.1:8000/v1}"
 export OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434/v1}"
 # faster-whisper-server selects the model server-side via WHISPER__MODEL; the
 # STT_MODEL field bot.py sends is just OpenAI shape compatibility / logging.
-export STT_MODEL="${STT_MODEL:-Systran/faster-whisper-large-v3-turbo}"
+export STT_MODEL="${STT_MODEL:-large-v3}"
 
 echo "[cuda] launching bot.py (Silero TTS loads in-process on CUDA)"
 uv run python bot.py

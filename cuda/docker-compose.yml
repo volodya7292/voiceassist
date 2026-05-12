@@ -13,9 +13,11 @@ services:
     container_name: voiceassist-whisper
     restart: unless-stopped
     environment:
-      # Multilingual turbo model: matches the Mac stack's `whisper-large-v3-turbo`.
-      # For English-only fast path use `Systran/faster-distil-whisper-large-v3`.
-      WHISPER__MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-large-v3-turbo}
+      # Full multilingual large-v3 (best Russian quality).
+      # For ~2x speed at slightly lower accuracy switch to
+      # `Systran/faster-whisper-large-v3-turbo`; for English-only fast path use
+      # `Systran/faster-distil-whisper-large-v3`.
+      WHISPER__MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-large-v3}
       WHISPER__INFERENCE_DEVICE: cuda
       WHISPER__COMPUTE_TYPE: float16
     ports:

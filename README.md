@@ -4,8 +4,8 @@ Local voice assistant. Open-weight models, no cloud. Two supported hosts:
 
 | host             | STT                                  | LLM (Ollama)        | TTS                                |
 |------------------|--------------------------------------|---------------------|------------------------------------|
-| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) | `gemma3:4b` (Metal) | Silero v5_4_ru in-process, CPU     |
-| Linux + NVIDIA   | `faster-whisper-large-v3-turbo` via [fedirz/faster-whisper-server](https://github.com/fedirz/faster-whisper-server) (Docker, CUDA) | `gemma3:4b` (Docker, CUDA) | Silero v5_4_ru in-process, CUDA |
+| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (fast, CPU/Metal-bound) | `gemma3:4b` (Metal) | Silero v5_4_ru in-process, CPU     |
+| Linux + NVIDIA   | `large-v3` via [fedirz/faster-whisper-server](https://github.com/fedirz/faster-whisper-server) (Docker, CUDA, full multilingual) | `gemma3:4b` (Docker, CUDA) | Silero v5_4_ru in-process, CUDA |
 
 Pipeline framework: [Pipecat](https://github.com/pipecat-ai/pipecat).
 Audio I/O: host mic + speakers via PyAudio / PortAudio. The bot itself runs
@@ -86,9 +86,9 @@ Override via environment variables (see `bot.py` for the full list):
 | var                   | default                                  |
 |-----------------------|------------------------------------------|
 | `LLM_MODEL`           | `gemma3:4b`                              |
-| `STT_MODEL`           | `whisper-large-v3-turbo`                 |
-| `WHISPER_MODEL_REPO`  | `mlx-community/whisper-large-v3-turbo` (Mac) |
-| `WHISPER_MODEL`       | `Systran/faster-whisper-large-v3-turbo` (CUDA, sets `WHISPER__MODEL` in the Docker image) |
+| `STT_MODEL`           | `large-v3` — short name accepted by faster-whisper-server; ignored by the Mac MLX server (which honors `WHISPER_MODEL_REPO` instead) |
+| `WHISPER_MODEL_REPO`  | `mlx-community/whisper-large-v3-turbo` — Mac MLX server's actual model |
+| `WHISPER_MODEL`       | `Systran/faster-whisper-large-v3` — CUDA, sets `WHISPER__MODEL` in the Docker image |
 | `TTS_VOICE`           | `kseniya` (Silero); also `aidar`, `baya`, `xenia` |
 | `TTS_SAMPLE_RATE`     | `24000` (Silero also supports 8000 / 48000) |
 | `SILERO_DEVICE`       | auto: `cuda` if available, else `cpu`    |

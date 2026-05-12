@@ -67,12 +67,35 @@ comfortably run 4–6 workers.
 ```
 bot.py                       Pipecat pipeline (mic -> STT -> LLM -> TTS -> speakers)
 silero_tts_service.py        Pipecat TTS service backed by Silero v5_4_ru (auto CPU/CUDA)
-servers/whisper_server.py    Apple Silicon: OpenAI-compatible /v1/audio/transcriptions via mlx-whisper
+servers/whisper_server.py    OpenAI-compatible /v1/audio/transcriptions
+                             (mlx-whisper on Mac, faster-whisper N-worker pool elsewhere)
 loadtest.py                  Concurrency + latency benchmark
-run.sh                       Apple Silicon launcher
-cuda/docker-compose.yml      CUDA model services (Whisper + Ollama)
-cuda/run.sh                  CUDA launcher
+run.sh                       Apple Silicon launcher (CLI bot)
+cuda/docker-compose.yml      Ollama on GPU (whisper now runs natively)
+cuda/run.sh                  CUDA launcher (CLI bot)
+webui/server.py              Push-to-talk web UI backend
+webui/static/index.html      Single-page browser frontend
+webui/run.sh                 Web UI launcher (serves http://127.0.0.1:8888)
 ```
+
+## Web UI
+
+Push-to-talk in a browser tab instead of the native mic. Same backend
+services (Whisper STT, Ollama, Silero TTS in-process), so any host that can
+run `bot.py` can run the web UI.
+
+```bash
+# Make sure Ollama is running (brew services start ollama on Mac, or
+# docker compose -f cuda/docker-compose.yml up -d on Linux/Windows).
+./webui/run.sh
+# Open http://127.0.0.1:8888/ in a browser. Click the big button, speak,
+# click again to send. The reply audio plays back when ready.
+```
+
+The browser captures mic audio via the Web Audio API, encodes a 16 kHz WAV
+client-side, and POSTs `/api/turn`. The server runs STT → LLM → TTS and
+returns the reply WAV with `X-Transcript`, `X-Reply`, and `X-History`
+response headers (URL-encoded) so the UI can render the conversation.
 
 ## Component smoke tests
 

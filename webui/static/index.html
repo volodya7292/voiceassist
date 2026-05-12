@@ -14,36 +14,59 @@
     --accent: #4f8cff;
     --user-bubble: #2a3140;
     --bot-bubble: #1f2a3e;
-    --record: #e0464d;
+    --listening: #4f8cff;
+    --speaking-user: #38c172;
+    --thinking: #d4a017;
+    --speaking-bot: #b66bff;
+    --off: #3b4150;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--fg);
     font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    min-height: 100vh;
     display: flex;
     flex-direction: column;
   }
   header {
-    padding: 16px 20px;
+    padding: 14px 20px;
     border-bottom: 1px solid var(--panel-border);
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
   }
   header h1 {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
     letter-spacing: 0.02em;
+    flex: 1;
   }
-  header .status {
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--off);
+    transition: background 200ms ease, box-shadow 200ms ease;
+  }
+  .dot.listening { background: var(--listening); box-shadow: 0 0 6px var(--listening); }
+  .dot.user     { background: var(--speaking-user); box-shadow: 0 0 8px var(--speaking-user); animation: glow 0.8s ease-in-out infinite alternate; }
+  .dot.thinking { background: var(--thinking); box-shadow: 0 0 6px var(--thinking); animation: glow 0.6s ease-in-out infinite alternate; }
+  .dot.bot      { background: var(--speaking-bot); box-shadow: 0 0 8px var(--speaking-bot); animation: glow 0.8s ease-in-out infinite alternate; }
+  @keyframes glow {
+    from { opacity: 0.6; }
+    to { opacity: 1.0; }
+  }
+  .label {
     color: var(--fg-dim);
     font-size: 13px;
     font-variant-numeric: tabular-nums;
+    min-width: 80px;
+    text-align: right;
   }
+
   main {
     flex: 1;
     overflow-y: auto;
@@ -62,7 +85,7 @@
     margin-bottom: 12px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
   }
   .bubble {
     padding: 10px 14px;
@@ -87,21 +110,21 @@
     padding: 0 6px;
   }
   .user .meta { align-self: flex-end; }
-  .bot .meta { align-self: flex-start; }
+  .bot .meta  { align-self: flex-start; }
 
   footer {
     border-top: 1px solid var(--panel-border);
-    padding: 18px 20px;
+    padding: 16px 20px;
     background: var(--panel);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
-  button.talk {
+  button.toggle {
     width: 100%;
     max-width: 360px;
-    padding: 16px 20px;
+    padding: 14px 20px;
     border: none;
     border-radius: 999px;
     background: var(--accent);
@@ -109,249 +132,252 @@
     font-size: 16px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 80ms ease;
-    touch-action: manipulation;
+    transition: background 80ms ease, opacity 80ms ease;
   }
-  button.talk:hover:not(:disabled) { filter: brightness(1.05); }
-  button.talk:disabled { opacity: 0.55; cursor: not-allowed; }
-  button.talk.recording {
-    background: var(--record);
-    animation: pulse 1.2s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(224, 70, 77, 0.5); }
-    50% { box-shadow: 0 0 0 12px rgba(224, 70, 77, 0); }
-  }
-  .hint {
-    color: var(--fg-dim);
-    font-size: 12px;
-  }
-  .err {
-    color: #ff6b6b;
-    font-size: 13px;
-    text-align: center;
-  }
+  button.toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.toggle.on  { background: #e0464d; }
+  .hint { color: var(--fg-dim); font-size: 12px; text-align: center; }
+  .err  { color: #ff6b6b; font-size: 13px; text-align: center; min-height: 1em; }
 </style>
 </head>
 <body>
   <header>
     <h1>voiceassist</h1>
-    <span class="status" id="status">ready</span>
+    <div class="dot" id="dot"></div>
+    <span class="label" id="label">off</span>
   </header>
   <main id="log">
-    <div class="empty" id="empty">Press the button below and say something in Russian.</div>
+    <div class="empty" id="empty">Click Start, then speak. The assistant can be interrupted mid-sentence — just start talking.</div>
   </main>
   <footer>
-    <button class="talk" id="talk">Press to talk</button>
-    <div class="hint" id="hint">Click again to send</div>
+    <button class="toggle" id="toggle">Start</button>
+    <div class="hint">Use headphones for clean barge-in.</div>
     <div class="err" id="err"></div>
   </footer>
 
 <script>
-class WavRecorder {
-  constructor(sampleRate = 16000) {
-    this.targetRate = sampleRate;
-    this.chunks = [];
-  }
-  async start() {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-    });
-    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.source = this.ctx.createMediaStreamSource(this.stream);
-    this.proc = this.ctx.createScriptProcessor(4096, 1, 1);
-    this.chunks = [];
-    this.proc.onaudioprocess = (e) => {
-      this.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-    };
-    this.source.connect(this.proc);
-    this.proc.connect(this.ctx.destination);
-    this.captureRate = this.ctx.sampleRate;
-  }
-  async stop() {
-    this.proc.disconnect();
-    this.source.disconnect();
-    this.stream.getTracks().forEach(t => t.stop());
-    const rate = this.captureRate;
-    await this.ctx.close();
+const TTS_RATE = 24000;
+const MIC_RATE = 16000;
 
-    let total = 0;
-    for (const c of this.chunks) total += c.length;
-    const merged = new Float32Array(total);
-    let off = 0;
-    for (const c of this.chunks) { merged.set(c, off); off += c.length; }
-
-    const resampled = this._resample(merged, rate, this.targetRate);
-    return this._encodeWav(resampled, this.targetRate);
-  }
-  _resample(input, fromRate, toRate) {
-    if (fromRate === toRate) return input;
-    const ratio = fromRate / toRate;
-    const outLen = Math.floor(input.length / ratio);
-    const out = new Float32Array(outLen);
-    for (let i = 0; i < outLen; i++) {
-      const idx = i * ratio;
-      const i0 = Math.floor(idx);
-      const i1 = Math.min(i0 + 1, input.length - 1);
-      const frac = idx - i0;
-      out[i] = input[i0] * (1 - frac) + input[i1] * frac;
-    }
-    return out;
-  }
-  _encodeWav(samples, sampleRate) {
-    const buf = new ArrayBuffer(44 + samples.length * 2);
-    const view = new DataView(buf);
-    const writeStr = (offset, s) => {
-      for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
-    };
-    writeStr(0, 'RIFF');
-    view.setUint32(4, 36 + samples.length * 2, true);
-    writeStr(8, 'WAVE');
-    writeStr(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);          // PCM
-    view.setUint16(22, 1, true);          // mono
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeStr(36, 'data');
-    view.setUint32(40, samples.length * 2, true);
-    let p = 44;
-    for (let i = 0; i < samples.length; i++) {
-      let s = Math.max(-1, Math.min(1, samples[i]));
-      view.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-      p += 2;
-    }
-    return new Blob([buf], { type: 'audio/wav' });
-  }
-}
-
-const btn = document.getElementById('talk');
-const statusEl = document.getElementById('status');
+const dot = document.getElementById('dot');
+const label = document.getElementById('label');
+const toggleBtn = document.getElementById('toggle');
 const errEl = document.getElementById('err');
 const logEl = document.getElementById('log');
 const emptyEl = document.getElementById('empty');
-const hintEl = document.getElementById('hint');
 
-let recorder = null;
-let history = [];
-let state = 'idle';   // idle | recording | sending | playing
-
-function setStatus(s) { statusEl.textContent = s; }
+function setIndicator(stateName, txt) {
+  dot.className = 'dot ' + stateName;
+  label.textContent = txt;
+}
 function setError(msg) { errEl.textContent = msg || ''; }
 
-function appendTurn(userText, botText) {
-  if (emptyEl) emptyEl.remove();
-  const wrap = document.createDocumentFragment();
+// ---------------------------------------------------------------------------
+// Conversation log
 
-  const u = document.createElement('div');
-  u.className = 'turn user';
-  u.innerHTML = `<div class="bubble"></div><div class="meta">you</div>`;
-  u.querySelector('.bubble').textContent = userText;
-  wrap.appendChild(u);
+let botBubble = null;
 
-  const b = document.createElement('div');
-  b.className = 'turn bot';
-  b.innerHTML = `<div class="bubble"></div><div class="meta">assistant</div>`;
-  b.querySelector('.bubble').textContent = botText;
-  wrap.appendChild(b);
+function ensureEmptyHidden() {
+  if (emptyEl && emptyEl.parentNode) emptyEl.remove();
+}
 
+function newUserBubble(text) {
+  ensureEmptyHidden();
+  const wrap = document.createElement('div');
+  wrap.className = 'turn user';
+  wrap.innerHTML = `<div class="bubble"></div><div class="meta">you</div>`;
+  wrap.querySelector('.bubble').textContent = text;
   logEl.appendChild(wrap);
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function setMode(mode) {
-  state = mode;
-  btn.classList.toggle('recording', mode === 'recording');
-  if (mode === 'idle') {
-    btn.disabled = false;
-    btn.textContent = 'Press to talk';
-    hintEl.textContent = 'Click to start';
-    setStatus('ready');
-  } else if (mode === 'recording') {
-    btn.disabled = false;
-    btn.textContent = 'Stop & send';
-    hintEl.textContent = 'Click again to send';
-    setStatus('listening');
-  } else if (mode === 'sending') {
-    btn.disabled = true;
-    btn.textContent = 'Processing...';
-    hintEl.textContent = '';
-    setStatus('thinking');
-  } else if (mode === 'playing') {
-    btn.disabled = true;
-    btn.textContent = 'Speaking...';
-    hintEl.textContent = '';
-    setStatus('speaking');
+function appendBotChunk(text) {
+  if (!botBubble) {
+    ensureEmptyHidden();
+    const wrap = document.createElement('div');
+    wrap.className = 'turn bot';
+    wrap.innerHTML = `<div class="bubble"></div><div class="meta">assistant</div>`;
+    logEl.appendChild(wrap);
+    botBubble = wrap.querySelector('.bubble');
   }
+  botBubble.textContent += (botBubble.textContent ? ' ' : '') + text;
+  logEl.scrollTop = logEl.scrollHeight;
 }
 
-async function startRecording() {
+// ---------------------------------------------------------------------------
+// Audio playback queue with barge-in support
+
+let playbackCtx = null;
+let nextPlaybackTime = 0;
+const scheduledSources = new Set();
+
+function int16ToFloat32(buf) {
+  const i16 = new Int16Array(buf);
+  const f32 = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; i++) {
+    const s = i16[i];
+    f32[i] = s < 0 ? s / 0x8000 : s / 0x7fff;
+  }
+  return f32;
+}
+
+function playPcm(buf) {
+  if (!playbackCtx) return;
+  const f32 = int16ToFloat32(buf);
+  if (f32.length === 0) return;
+  const audioBuf = playbackCtx.createBuffer(1, f32.length, TTS_RATE);
+  audioBuf.copyToChannel(f32, 0);
+  const src = playbackCtx.createBufferSource();
+  src.buffer = audioBuf;
+  src.connect(playbackCtx.destination);
+
+  const now = playbackCtx.currentTime;
+  const startAt = Math.max(now + 0.02, nextPlaybackTime);
+  src.start(startAt);
+  const endAt = startAt + f32.length / TTS_RATE;
+  nextPlaybackTime = endAt;
+  scheduledSources.add(src);
+  src.onended = () => scheduledSources.delete(src);
+}
+
+function flushPlayback() {
+  for (const src of scheduledSources) {
+    try { src.stop(); } catch (_) {}
+    try { src.disconnect(); } catch (_) {}
+  }
+  scheduledSources.clear();
+  nextPlaybackTime = playbackCtx ? playbackCtx.currentTime : 0;
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket session
+
+let captureCtx = null;
+let micStream = null;
+let captureNode = null;
+let ws = null;
+
+async function startSession() {
   setError('');
   try {
-    recorder = new WavRecorder(16000);
-    await recorder.start();
-    setMode('recording');
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        sampleRate: MIC_RATE,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
   } catch (e) {
-    setError('Mic permission denied: ' + (e.message || e));
-    setMode('idle');
+    setError('Microphone permission denied: ' + (e.message || e));
+    toggleBtn.classList.remove('on');
+    toggleBtn.textContent = 'Start';
+    setIndicator('', 'off');
+    return;
+  }
+
+  captureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: MIC_RATE });
+  playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TTS_RATE });
+  nextPlaybackTime = 0;
+  await captureCtx.audioWorklet.addModule('/static/capture-worklet.js');
+
+  const source = captureCtx.createMediaStreamSource(micStream);
+  captureNode = new AudioWorkletNode(captureCtx, 'capture-processor');
+  source.connect(captureNode);
+  // Intentionally not connecting captureNode -> destination (don't echo mic to speakers).
+
+  const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+  ws = new WebSocket(wsUrl);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    setIndicator('listening', 'listening');
+    captureNode.port.onmessage = (e) => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(e.data);
+    };
+  };
+
+  ws.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      handleControl(msg);
+    } else {
+      playPcm(e.data);
+    }
+  };
+
+  ws.onerror = () => setError('WebSocket error');
+  ws.onclose = () => {
+    if (toggleBtn.classList.contains('on')) {
+      setError('Connection closed');
+      stopSession();
+    }
+  };
+}
+
+function handleControl(msg) {
+  switch (msg.type) {
+    case 'user_speaking':
+      if (msg.value) {
+        setIndicator('user', 'you...');
+        botBubble = null;  // start a fresh bot bubble for the upcoming reply
+      } else {
+        setIndicator('thinking', 'thinking');
+      }
+      break;
+    case 'bot_speaking':
+      if (msg.value) {
+        setIndicator('bot', 'speaking');
+      } else {
+        setIndicator('listening', 'listening');
+      }
+      break;
+    case 'transcript':
+      newUserBubble(msg.text);
+      setIndicator('thinking', 'thinking');
+      break;
+    case 'reply_chunk':
+      appendBotChunk(msg.text);
+      break;
+    case 'interruption':
+      // Server-side barge-in fired: drop any audio still in our queue
+      // so the user's new turn isn't competing with the bot's tail.
+      flushPlayback();
+      break;
+    case 'error':
+      setError(msg.text || 'server error');
+      break;
   }
 }
 
-async function stopAndSend() {
-  let blob;
-  try {
-    blob = await recorder.stop();
-  } catch (e) {
-    setError('Recording failed: ' + (e.message || e));
-    setMode('idle');
-    return;
-  }
-  setMode('sending');
-
-  const fd = new FormData();
-  fd.append('audio', blob, 'turn.wav');
-  fd.append('history', JSON.stringify(history));
-
-  let resp;
-  try {
-    resp = await fetch('/api/turn', { method: 'POST', body: fd });
-  } catch (e) {
-    setError('Request failed: ' + (e.message || e));
-    setMode('idle');
-    return;
-  }
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    setError(`Server ${resp.status}: ${text.slice(0, 200)}`);
-    setMode('idle');
-    return;
-  }
-
-  const transcript = decodeURIComponent(resp.headers.get('X-Transcript') || '');
-  const reply = decodeURIComponent(resp.headers.get('X-Reply') || '');
-  const updated = decodeURIComponent(resp.headers.get('X-History') || '');
-  if (updated) {
-    try { history = JSON.parse(updated); } catch (_) {}
-  }
-  appendTurn(transcript, reply);
-
-  const wavBlob = await resp.blob();
-  const url = URL.createObjectURL(wavBlob);
-  const audio = new Audio(url);
-  setMode('playing');
-  audio.onended = () => { URL.revokeObjectURL(url); setMode('idle'); };
-  audio.onerror = () => { URL.revokeObjectURL(url); setMode('idle'); };
-  try { await audio.play(); } catch (e) { setMode('idle'); }
+async function stopSession() {
+  setIndicator('', 'off');
+  try { if (ws) ws.close(); } catch (_) {}
+  ws = null;
+  flushPlayback();
+  if (captureNode) { try { captureNode.disconnect(); } catch (_) {} captureNode = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (captureCtx) { try { await captureCtx.close(); } catch (_) {} captureCtx = null; }
+  if (playbackCtx) { try { await playbackCtx.close(); } catch (_) {} playbackCtx = null; }
+  nextPlaybackTime = 0;
+  botBubble = null;
 }
 
-btn.addEventListener('click', () => {
-  if (state === 'idle') startRecording();
-  else if (state === 'recording') stopAndSend();
+toggleBtn.addEventListener('click', async () => {
+  if (toggleBtn.classList.contains('on')) {
+    toggleBtn.classList.remove('on');
+    toggleBtn.textContent = 'Start';
+    await stopSession();
+  } else {
+    toggleBtn.classList.add('on');
+    toggleBtn.textContent = 'Stop';
+    await startSession();
+  }
 });
 
-setMode('idle');
+setIndicator('', 'off');
 </script>
 </body>
 </html>

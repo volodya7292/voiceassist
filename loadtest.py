@@ -44,10 +44,11 @@ import torch
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8000/v1")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "gemma3:4b")
-# faster-whisper-server accepts `large-v3` as a short name; the Apple-side
-# mlx-whisper shim ignores the request `model` field (uses WHISPER_MODEL_REPO
-# env var instead), so the same default works on both stacks.
-STT_MODEL = os.environ.get("STT_MODEL", "large-v3")
+# Wire-level model name. The native whisper_server uses the env-side
+# WHISPER_MODEL (faster-whisper) or WHISPER_MODEL_REPO (mlx-whisper) to choose
+# what to load; the request `model` field is ignored on both stacks, so this
+# is purely cosmetic and matches the OpenAI shape.
+STT_MODEL = os.environ.get("STT_MODEL", "small")
 TTS_VOICE = os.environ.get("TTS_VOICE", "kseniya")
 TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
 

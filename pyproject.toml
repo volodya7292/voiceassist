@@ -17,9 +17,12 @@ dependencies = [
     "torch>=2.11.0",
     "torchaudio>=2.11.0",
 
-    # Apple Silicon-only: MLX backend for the local Whisper server.
-    # On Linux/CUDA hosts use the Dockerized faster-whisper-server instead.
+    # Apple Silicon: MLX backend for the local Whisper server.
     "mlx-whisper>=0.4.1; sys_platform == 'darwin'",
+    # Linux / Windows: faster-whisper (CTranslate2). On Windows + Linux, the
+    # CUDA libraries (cuBLAS, cuDNN) ship as transitive deps via nvidia-* PyPI
+    # wheels.
+    "faster-whisper>=1.0.3; sys_platform != 'darwin'",
 ]
 
 [tool.uv]

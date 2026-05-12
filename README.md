@@ -4,8 +4,8 @@ Local voice assistant. Open-weight models, no cloud. Two supported hosts:
 
 | host             | STT                                  | LLM (Ollama)        | TTS                                |
 |------------------|--------------------------------------|---------------------|------------------------------------|
-| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (fast, CPU/Metal-bound) | `gemma3:4b` (Metal) | Silero v5_4_ru in-process, CPU     |
-| Linux + NVIDIA   | `large-v3` via [fedirz/faster-whisper-server](https://github.com/fedirz/faster-whisper-server) (Docker, CUDA, full multilingual) | `gemma3:4b` (Docker, CUDA) | Silero v5_4_ru in-process, CUDA |
+| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (single worker, Metal) | `gemma3:4b` (Metal) | Silero v5_4_ru in-process, CPU     |
+| Linux + NVIDIA   | `whisper-small` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (native Python, **N-worker pool on CUDA**) | `gemma3:4b` (Docker, CUDA) | Silero v5_4_ru in-process, CUDA |
 
 Pipeline framework: [Pipecat](https://github.com/pipecat-ai/pipecat).
 Audio I/O: host mic + speakers via PyAudio / PortAudio. The bot itself runs
@@ -48,12 +48,19 @@ uv sync               # PyTorch CUDA wheels resolved automatically on Linux
 ./cuda/run.sh
 ```
 
-`cuda/run.sh` boots `cuda/docker-compose.yml` (Whisper STT + Ollama on the
-GPU), waits for both to be healthy, pulls `gemma3:4b` if missing, then runs
-`bot.py` on the host. Silero loads in-process and auto-detects the GPU; you
-can override with `SILERO_DEVICE=cuda:1` or `SILERO_DEVICE=cpu`.
+`cuda/run.sh` boots Ollama via `cuda/docker-compose.yml`, launches the native
+`servers/whisper_server.py` (which loads `WHISPER_WORKERS` copies of
+`faster-whisper` on the GPU), waits for both to be healthy, pulls `gemma3:4b`
+if missing, then runs `bot.py` on the host. Silero loads in-process and
+auto-detects the GPU; override with `SILERO_DEVICE=cuda:1` or `SILERO_DEVICE=cpu`.
 
-To tear down the containers afterwards: `docker compose -f cuda/docker-compose.yml down`.
+To leave Ollama up between runs: `KEEP_COMPOSE=1 ./cuda/run.sh`. To tear it
+down manually: `docker compose -f cuda/docker-compose.yml down`.
+
+**STT concurrency.** `WHISPER_WORKERS=N` (default `2`) spawns N `WhisperModel`
+instances pinned to the same GPU. Each `WhisperModel` for `small` consumes
+~480 MB VRAM in fp16. On a 16 GB GPU sharing with `gemma3:4b` you can
+comfortably run 4–6 workers.
 
 ## Layout
 
@@ -86,9 +93,12 @@ Override via environment variables (see `bot.py` for the full list):
 | var                   | default                                  |
 |-----------------------|------------------------------------------|
 | `LLM_MODEL`           | `gemma3:4b`                              |
-| `STT_MODEL`           | `large-v3` — short name accepted by faster-whisper-server; ignored by the Mac MLX server (which honors `WHISPER_MODEL_REPO` instead) |
+| `STT_MODEL`           | `small` — wire-level only; the server picks the actual model from `WHISPER_MODEL` (faster-whisper) or `WHISPER_MODEL_REPO` (mlx-whisper) |
 | `WHISPER_MODEL_REPO`  | `mlx-community/whisper-large-v3-turbo` — Mac MLX server's actual model |
-| `WHISPER_MODEL`       | `Systran/faster-whisper-large-v3` — CUDA, sets `WHISPER__MODEL` in the Docker image |
+| `WHISPER_MODEL`       | `small` — faster-whisper short name or full HF repo path |
+| `WHISPER_WORKERS`     | `2` — faster-whisper model-pool size (concurrent transcriptions) |
+| `WHISPER_DEVICE`      | `auto` — `cuda` / `cpu` / `auto` for faster-whisper |
+| `WHISPER_COMPUTE`     | `float16` on cuda, `int8` on cpu |
 | `TTS_VOICE`           | `kseniya` (Silero); also `aidar`, `baya`, `xenia` |
 | `TTS_SAMPLE_RATE`     | `24000` (Silero also supports 8000 / 48000) |
 | `SILERO_DEVICE`       | auto: `cuda` if available, else `cpu`    |

@@ -1,0 +1,54 @@
+# CUDA stack: Whisper STT + Ollama LLM as Docker services on the GPU.
+# Silero TTS stays in-process in bot.py on the host (uses host CUDA torch).
+#
+# Requires nvidia-container-toolkit on the host. To boot:
+#   cd cuda && docker compose up -d
+# then from the repo root:
+#   ./cuda/run.sh
+
+services:
+  whisper:
+    # OpenAI-compatible /v1/audio/transcriptions, served from CTranslate2.
+    image: fedirz/faster-whisper-server:latest-cuda
+    container_name: voiceassist-whisper
+    restart: unless-stopped
+    environment:
+      # Multilingual turbo model: matches the Mac stack's `whisper-large-v3-turbo`.
+      # For English-only fast path use `Systran/faster-distil-whisper-large-v3`.
+      WHISPER__MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-large-v3-turbo}
+      WHISPER__INFERENCE_DEVICE: cuda
+      WHISPER__COMPUTE_TYPE: float16
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - whisper_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: voiceassist-ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Keep models resident: 5 min idle eviction is the default; bump if needed.
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-5m}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  whisper_cache:
+  ollama_data:

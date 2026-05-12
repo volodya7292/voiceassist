@@ -1,8 +1,14 @@
 """In-process Pipecat TTS service backed by Silero v5_4_ru.
 
 The Silero TTS model is a torch.package archive. We download it on first use
-into a local cache and load it in the constructor. Synthesis runs on CPU at
-RTF ~0.01 on Apple Silicon, so blocking the asyncio loop in a thread is fine.
+into a local cache and load it in the constructor. Device selection:
+
+  * SILERO_DEVICE env var, if set ("cpu", "cuda", "cuda:0", "mps", ...)
+  * else "cuda" when torch.cuda.is_available()
+  * else "cpu"
+
+On Apple Silicon CPU is plenty (RTF ~0.01); on a CUDA host with a recent GPU
+this gets a few-x faster but is rarely the bottleneck.
 """
 from __future__ import annotations
 
@@ -25,6 +31,17 @@ DEFAULT_CACHE = Path(os.environ.get("SILERO_CACHE", "~/.cache/silero")).expandus
 DEFAULT_SAMPLE_RATE = 24000  # Silero supports 8000 / 24000 / 48000
 
 
+def _resolve_device(requested: str | None) -> str:
+    if requested:
+        return requested
+    env = os.environ.get("SILERO_DEVICE")
+    if env:
+        return env
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
 def _ensure_model(model_url: str, cache_dir: Path) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     local = cache_dir / Path(model_url).name
@@ -44,6 +61,7 @@ class SileroTTSService(TTSService):
         model_url: str = DEFAULT_MODEL_URL,
         cache_dir: Path | str = DEFAULT_CACHE,
         sample_rate: int = DEFAULT_SAMPLE_RATE,
+        device: str | None = None,
         put_accent: bool = True,
         put_yo: bool = True,
         chunk_ms: int = 100,
@@ -58,6 +76,7 @@ class SileroTTSService(TTSService):
         )
         self._model_url = model_url
         self._cache_dir = Path(cache_dir).expanduser()
+        self._device = _resolve_device(device)
         self._put_accent = put_accent
         self._put_yo = put_yo
         self._chunk_samples = max(1, int(sample_rate * chunk_ms / 1000))
@@ -69,10 +88,13 @@ class SileroTTSService(TTSService):
 
     def _load_model_sync(self):
         local = _ensure_model(self._model_url, self._cache_dir)
-        logger.info(f"silero: loading {local}")
+        logger.info(f"silero: loading {local} on {self._device}")
         model = torch.package.PackageImporter(str(local)).load_pickle("tts_models", "model")
-        model.to(torch.device("cpu"))
-        logger.info(f"silero: loaded; speakers={model.speakers[:8]}{'...' if len(model.speakers) > 8 else ''}")
+        model.to(torch.device(self._device))
+        logger.info(
+            f"silero: loaded on {self._device}; "
+            f"speakers={model.speakers[:8]}{'...' if len(model.speakers) > 8 else ''}"
+        )
         return model
 
     async def _ensure_loaded(self):

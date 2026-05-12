@@ -1,16 +1,30 @@
 #!/usr/bin/env bash
-# Boot the CUDA model services (Whisper + Ollama in Docker), wait until both
-# are healthy, ensure gemma3:4b is pulled, then launch bot.py on the host.
+# CUDA launcher. Brings up Whisper + Ollama in Docker, runs bot.py on the
+# host, and stops everything (compose stack included) when the script exits.
+#
+# Set KEEP_COMPOSE=1 to leave the containers running after the script exits.
 #
 # Host requirements:
-#   - NVIDIA driver + nvidia-container-toolkit
-#   - docker compose v2
-#   - Python 3.11/3.12, uv, PortAudio (apt: portaudio19-dev)
-#   - PyTorch with CUDA wheels (auto-installed by `uv sync`)
+#   Linux:   NVIDIA driver + nvidia-container-toolkit + docker compose v2 + portaudio19-dev
+#   Windows: WSL2 backend OR Docker Desktop + recent Windows PyTorch CUDA wheels
+#   Both:    uv, Python 3.11/3.12
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 COMPOSE_FILE=cuda/docker-compose.yml
+
+cleanup() {
+    if [ "${KEEP_COMPOSE:-0}" = "1" ]; then
+        echo "[cuda] KEEP_COMPOSE=1 set, leaving containers running"
+        return
+    fi
+    echo "[cuda] stopping docker compose stack..."
+    docker compose -f "$COMPOSE_FILE" down --remove-orphans 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+echo "[cuda] syncing project deps (torch, pyaudio, pipecat, ...)"
+uv sync --quiet
 
 echo "[cuda] starting whisper + ollama via docker compose..."
 docker compose -f "$COMPOSE_FILE" up -d
@@ -48,13 +62,12 @@ if ! curl -fs http://127.0.0.1:11434/api/tags | grep -q '"gemma3:4b"'; then
     docker compose -f "$COMPOSE_FILE" exec -T ollama ollama pull gemma3:4b
 fi
 
-# Make sure the bot points at the local services (run.sh on Mac uses the same defaults).
+# Point bot.py at the local services.
 export WHISPER_URL="${WHISPER_URL:-http://127.0.0.1:8000/v1}"
 export OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434/v1}"
-# faster-whisper-server expects the HF model repo string in /v1/audio/transcriptions,
-# but the model is selected server-side via WHISPER__MODEL — STT_MODEL here is only
-# used for logging/OpenAI shape compatibility.
+# faster-whisper-server selects the model server-side via WHISPER__MODEL; the
+# STT_MODEL field bot.py sends is just OpenAI shape compatibility / logging.
 export STT_MODEL="${STT_MODEL:-Systran/faster-whisper-large-v3-turbo}"
 
 echo "[cuda] launching bot.py (Silero TTS loads in-process on CUDA)"
-exec uv run python bot.py
+uv run python bot.py

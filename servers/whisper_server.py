@@ -42,7 +42,7 @@ if BACKEND == "mlx":
 
     MODEL = os.environ.get(
         "WHISPER_MODEL_REPO",
-        "mlx-community/whisper-large-v3-turbo",
+        "mlx-community/whisper-small-mlx",
     )
     WORKERS = 1
     _mlx_lock = asyncio.Lock()

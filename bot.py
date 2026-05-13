@@ -3,13 +3,16 @@
 Local services expected to be running:
   - Whisper:  http://127.0.0.1:8000  (servers/whisper_server.py)
   - Ollama:   http://127.0.0.1:11434 (ollama serve; model gemma3:4b)
-  - TTS:      in-process. Piper on darwin, Qwen3-TTS on CUDA hosts (see
-              tts_backends.py).
+  - TTS:      remote intelliscrape API by default (see tts_backends.py);
+              `TTS_BACKEND=piper` switches to in-process Piper.
 """
 from __future__ import annotations
 
 import asyncio
 import os
+
+from dotenv import load_dotenv
+load_dotenv()  # noqa: E402 — must run before tts_backends reads env
 
 from loguru import logger
 

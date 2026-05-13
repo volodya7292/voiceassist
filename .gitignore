@@ -12,5 +12,8 @@ wheels/
 # Local tool state
 .claude/
 
+# Local secrets (loaded by python-dotenv at startup)
+.env
+
 # macOS
 .DS_Store

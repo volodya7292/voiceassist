@@ -2,14 +2,29 @@
 
 Local voice assistant. Open-weight models, no cloud. Two supported hosts:
 
-| host             | STT                                  | LLM (Ollama)        | TTS                                |
-|------------------|--------------------------------------|---------------------|------------------------------------|
-| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (single worker, Metal) | `gemma3:4b` (Metal) | [Piper](https://github.com/OHF-Voice/piper1-gpl) `ru_RU-irina-medium`, in-process, CPU/ONNX |
-| Linux + NVIDIA   | `whisper-small` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (native Python, **N-worker pool on CUDA**) | `gemma3:4b` (Docker, CUDA) | [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) `Qwen3-TTS-12Hz-0.6B-Base`, in-process, voice cloning, CUDA |
+| host             | STT                                  | LLM (Ollama)        | TTS (default)                       |
+|------------------|--------------------------------------|---------------------|-------------------------------------|
+| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (single worker, Metal) | `gemma3:4b` (Metal) | `tts.intelliscrape.com` HTTP API, voice `danchenko` (Olena) |
+| Linux + NVIDIA   | `whisper-small` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (native Python, **N-worker pool on CUDA**) | `gemma3:4b` (Docker, CUDA) | `tts.intelliscrape.com` HTTP API, voice `danchenko` (Olena) |
+
+Offline fallback: `TTS_BACKEND=piper` swaps the remote API for in-process
+Piper ONNX (`ru_RU-irina-medium`, 22 kHz).
 
 Pipeline framework: [Pipecat](https://github.com/pipecat-ai/pipecat).
 Audio I/O: host mic + speakers via PyAudio / PortAudio. The bot itself runs
 on the host in both setups — only the model servers differ.
+
+## TTS token
+
+The default backend talks to `tts.intelliscrape.com`. Put the bearer token
+in a `.env` file at the repo root (gitignored); both `bot.py` and the web
+UI auto-load it via python-dotenv:
+
+```
+INTELLISCRAPE_TTS_TOKEN=...your_token...
+```
+
+Without a token, switch to the offline fallback: `TTS_BACKEND=piper`.
 
 ## Setup — Apple Silicon
 
@@ -17,23 +32,19 @@ on the host in both setups — only the model servers differ.
 brew install portaudio                  # required for pyaudio
 uv sync                                 # creates .venv and installs all deps
 ollama pull gemma3:4b                   # ~3 GB
+echo "INTELLISCRAPE_TTS_TOKEN=..." > .env
 ```
 
-The Whisper turbo (~1.6 GB) and Piper `ru_RU-irina-medium` (~60 MB) weights
-download automatically on first use into `~/.cache/huggingface` and
-`~/.cache/piper`. Piper weights come from the `rhasspy/piper-voices` HF repo.
-
-> Mac stays on Piper because Qwen3-TTS is CUDA-only. The backend is
-> selected automatically by platform in `tts_backends.py` — same script,
-> different TTS on each host.
+Whisper turbo weights (~1.6 GB) download automatically on first use into
+`~/.cache/huggingface`.
 
 ```bash
 ./run.sh
 ```
 
 This boots the Whisper FastAPI shim on `:8000`, waits for it to be healthy,
-ensures `gemma3:4b` is pulled, then launches `bot.py` (which loads Piper
-in-process). Press Ctrl+C to quit; the script cleans up child processes.
+ensures `gemma3:4b` is pulled, then launches `bot.py`. Press Ctrl+C to
+quit; the script cleans up child processes.
 
 ## Setup — Linux + NVIDIA (CUDA)
 
@@ -52,10 +63,8 @@ uv sync               # PyTorch CUDA wheels resolved automatically on Linux
 `cuda/run.sh` boots Ollama via `cuda/docker-compose.yml`, launches the native
 `servers/whisper_server.py` (which loads `WHISPER_WORKERS` copies of
 `faster-whisper` on the GPU), waits for both to be healthy, pulls `gemma3:4b`
-if missing, then runs `bot.py` on the host. Qwen3-TTS loads in-process on the
-GPU (bf16, SDPA attention, ~4-6 GB VRAM for the 0.6B base model). Voice
-cloning is driven by `Danchenko.wav` + `Danchenko.txt` in the repo root;
-override with `QWEN_REF_AUDIO_PATH` and `QWEN_REF_TEXT_PATH`.
+if missing, then runs `bot.py` on the host. TTS hits the intelliscrape
+HTTP API by default (no GPU work) — see the "TTS token" section above.
 
 To leave Ollama up between runs: `KEEP_COMPOSE=1 ./cuda/run.sh`. To tear it
 down manually: `docker compose -f cuda/docker-compose.yml down`.
@@ -69,9 +78,9 @@ comfortably run 4–6 workers.
 
 ```
 bot.py                       Pipecat pipeline (mic -> STT -> LLM -> TTS -> speakers)
-tts_backends.py              TTS backend selector (Piper on darwin, Qwen3-TTS on CUDA)
-piper_tts_service.py         Pipecat TTS service backed by Piper (one ONNX voice file per language)
-qwen_tts_service.py          Pipecat TTS service backed by Qwen3-TTS (voice cloning, CUDA)
+tts_backends.py              TTS backend selector (intelliscrape API / piper fallback)
+intelliscrape_tts_service.py Pipecat TTS service hitting tts.intelliscrape.com (default)
+piper_tts_service.py         Pipecat TTS service backed by Piper (offline fallback)
 servers/whisper_server.py    OpenAI-compatible /v1/audio/transcriptions
                              (mlx-whisper on Mac, faster-whisper N-worker pool elsewhere)
 loadtest.py                  Concurrency + latency benchmark
@@ -127,15 +136,12 @@ Override via environment variables (see `bot.py` for the full list):
 | `WHISPER_WORKERS`     | `2` — faster-whisper model-pool size (concurrent transcriptions) |
 | `WHISPER_DEVICE`      | `auto` — `cuda` / `cpu` / `auto` for faster-whisper |
 | `WHISPER_COMPUTE`     | `float16` on cuda, `int8` on cpu |
-| `TTS_BACKEND`         | `piper` on darwin, `qwen` elsewhere |
-| `TTS_VOICE`           | (Piper) `ru_RU-irina-medium` — any [Piper voice](https://huggingface.co/rhasspy/piper-voices), auto-downloaded |
-| `TTS_LANG`            | (Qwen) `Russian` — also `English`/`Chinese`/`Japanese`/`Korean`/`German`/`French`/`Portuguese`/`Spanish`/`Italian`, or ISO codes |
-| `TTS_SAMPLE_RATE`     | `24000` (Qwen3-TTS native) — Pipecat resamples downstream |
-| `QWEN_MODEL`          | `Qwen/Qwen3-TTS-12Hz-0.6B-Base` (also `...1.7B-Base` for higher quality) |
-| `QWEN_REF_AUDIO_PATH` | `Danchenko.wav` — path to a clean 10-30s reference clip |
-| `QWEN_REF_TEXT_PATH`  | `Danchenko.txt` — its exact transcript |
-| `QWEN_ATTN`           | `sdpa` — set to `flash_attention_2` if you have flash-attn installed |
-| `PIPER_USE_CUDA`      | `0` — Piper backend only |
+| `TTS_BACKEND`         | `intelliscrape` (remote API, default) or `piper` (offline ONNX) |
+| `TTS_VOICE`           | `olena` (alias for `danchenko`); also `serhii`, `yurii`/`tryus`, `volodymyr`/`andrienko` |
+| `TTS_SAMPLE_RATE`     | `24000` |
+| `INTELLISCRAPE_TTS_TOKEN` | (no default) bearer token — load via `.env` at the repo root |
+| `INTELLISCRAPE_TTS_URL`   | `https://tts.intelliscrape.com` |
+| `PIPER_USE_CUDA`      | `0` — Piper fallback only |
 | `PIPER_CACHE`         | `~/.cache/piper` |
 | `OLLAMA_KEEP_ALIVE`   | `5m` (Docker compose; longer = less cold-load latency at the cost of VRAM) |
 | `WHISPER_URL`         | `http://127.0.0.1:8000/v1`               |

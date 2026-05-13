@@ -28,6 +28,9 @@ import logging
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()  # noqa: E402 — must run before tts_backends reads env
+
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -219,14 +222,11 @@ async def index():
 
 @app.get("/api/health")
 async def health():
-    import sys
     return {
         "ok": True,
         "llm_model": LLM_MODEL,
         "stt_model": STT_MODEL,
-        "tts_backend": os.environ.get(
-            "TTS_BACKEND", "piper" if sys.platform == "darwin" else "qwen"
-        ),
+        "tts_backend": os.environ.get("TTS_BACKEND", "intelliscrape"),
         "tts_sample_rate": TTS_SAMPLE_RATE,
         "ws_sample_rate": WS_SAMPLE_RATE,
     }

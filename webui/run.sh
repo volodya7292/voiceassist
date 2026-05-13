@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Web UI launcher. Same model services as bot.py — needs the Whisper server
-# on :8000 and Ollama on :11434. The web app loads Silero in-process and
+# on :8000 and Ollama on :11434. The web app loads Piper in-process and
 # serves http://127.0.0.1:8888.
 #
 # Apple Silicon:   just run this; Whisper is started for you, Ollama must

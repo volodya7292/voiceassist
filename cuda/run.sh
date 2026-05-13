@@ -99,5 +99,5 @@ fi
 export WHISPER_URL="${WHISPER_URL:-http://127.0.0.1:8000/v1}"
 export OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434/v1}"
 
-echo "[cuda] launching bot.py (Silero TTS loads in-process)"
+echo "[cuda] launching bot.py (Piper TTS loads in-process)"
 uv run python bot.py

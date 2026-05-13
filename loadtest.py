@@ -9,7 +9,7 @@ directly so we can fan out N simultaneous "users" from one process:
 
   STT (HTTP Whisper :8000) -> LLM (HTTP Ollama :11434, streaming)
                            -> first-sentence boundary
-                           -> TTS (Silero v5_4_ru, in-process, serialized)
+                           -> TTS (Piper, in-process, serialized)
 
 Pre-conditions: the Whisper server is running (servers/whisper_server.py) and
 Ollama has gemma3:4b loaded. Run from the repo root via ``uv run python
@@ -17,7 +17,7 @@ loadtest.py``.
 
 Notes on serialization:
   - Whisper server uses an asyncio lock (one transcribe at a time).
-  - Silero is wrapped in a single asyncio lock to mirror the bot's behavior.
+  - Piper is wrapped in a single asyncio lock to mirror the bot's behavior.
   - Ollama serializes by default unless OLLAMA_NUM_PARALLEL > 1; we don't
     change that here, so concurrency > 1 mostly exposes queueing at the
     component bottlenecks, which is exactly the metric we want.
@@ -36,7 +36,6 @@ from pathlib import Path
 import httpx
 import numpy as np
 import soundfile as sf
-import torch
 
 # ---------------------------------------------------------------------------
 # Config
@@ -49,16 +48,15 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "gemma3:4b")
 # what to load; the request `model` field is ignored on both stacks, so this
 # is purely cosmetic and matches the OpenAI shape.
 STT_MODEL = os.environ.get("STT_MODEL", "small")
-TTS_VOICE = os.environ.get("TTS_VOICE", "kseniya")
-TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
+TTS_VOICE = os.environ.get("TTS_VOICE", "ru_RU-irina-medium")
+TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "22050"))
 
 INPUTS_DIR = Path(
     os.environ.get("LOADTEST_INPUTS", Path(tempfile.gettempdir()) / "loadtest_inputs")
 )
-# Voice used to synthesize the *inputs*. Kept separate from TTS_VOICE so the
-# input audio is distinguishable from what the bot produces. Falls back to
-# TTS_VOICE if the requested speaker isn't in the loaded model.
-INPUT_VOICE = os.environ.get("LOADTEST_INPUT_VOICE", "baya")
+# Voice used to synthesize the *inputs*. Defaults to the same voice as the
+# bot — content matters, not timbre.
+INPUT_VOICE = os.environ.get("LOADTEST_INPUT_VOICE", TTS_VOICE)
 
 PROMPTS_RU = [
     # ~100-char Russian prompts (15-18 words, ~6-8s of speech).
@@ -80,56 +78,49 @@ SYSTEM_PROMPT_RU = (
 # ---------------------------------------------------------------------------
 # Input preparation
 
-def prepare_inputs(model) -> list[Path]:
-    """Synthesize Russian test WAVs with Silero (cross-platform, cached)."""
+def _piper_synth_int16(voice_obj, text: str) -> tuple[np.ndarray, int]:
+    """Run Piper synth and return (int16 PCM array, sample_rate)."""
+    parts: list[np.ndarray] = []
+    sr = 0
+    for chunk in voice_obj.synthesize(text):
+        parts.append(chunk.audio_int16_array)
+        sr = chunk.sample_rate
+    if not parts:
+        return np.zeros(0, dtype=np.int16), sr or TTS_SAMPLE_RATE
+    return np.concatenate(parts), sr
+
+
+def prepare_inputs(input_voice_obj) -> list[Path]:
+    """Synthesize Russian test WAVs with Piper (cached)."""
     INPUTS_DIR.mkdir(parents=True, exist_ok=True)
-    speaker = INPUT_VOICE if INPUT_VOICE in model.speakers else model.speakers[0]
     wavs: list[Path] = []
     for i, text in enumerate(PROMPTS_RU):
         wav = INPUTS_DIR / f"prompt_{i:02d}.wav"
         if not wav.exists():
-            print(f"  generating {wav.name} (voice={speaker}): {text}")
-            audio = model.apply_tts(
-                text=text,
-                speaker=speaker,
-                sample_rate=TTS_SAMPLE_RATE,
-                put_accent=True,
-                put_yo=True,
-            )
-            arr = np.asarray(audio.detach().cpu().numpy(), dtype=np.float32)
-            sf.write(wav, arr, TTS_SAMPLE_RATE, subtype="PCM_16")
+            print(f"  generating {wav.name}: {text}")
+            arr, sr = _piper_synth_int16(input_voice_obj, text)
+            sf.write(wav, arr, sr, subtype="PCM_16")
         wavs.append(wav)
     return wavs
 
 
 # ---------------------------------------------------------------------------
-# Silero loading (reuses helpers from silero_tts_service)
+# Piper loading (reuses helpers from piper_tts_service)
 
-def load_silero():
-    from silero_tts_service import (
-        DEFAULT_CACHE,
-        DEFAULT_MODEL_URL,
-        _ensure_model,
-        _resolve_device,
-    )
-    local = _ensure_model(DEFAULT_MODEL_URL, DEFAULT_CACHE)
-    device = _resolve_device(None)
-    print(f"  loading silero from {local} on {device}")
-    model = torch.package.PackageImporter(str(local)).load_pickle("tts_models", "model")
-    model.to(torch.device(device))
-    return model
+def load_piper(voice: str):
+    from piper import PiperVoice
+
+    from piper_tts_service import DEFAULT_CACHE, _ensure_model, _resolve_use_cuda
+
+    onnx_path = _ensure_model(voice, DEFAULT_CACHE)
+    use_cuda = _resolve_use_cuda(None)
+    print(f"  loading piper voice {voice} from {onnx_path} (cuda={use_cuda})")
+    return PiperVoice.load(onnx_path, use_cuda=use_cuda)
 
 
-def synthesize_sync(model, text: str) -> bytes:
-    audio = model.apply_tts(
-        text=text,
-        speaker=TTS_VOICE,
-        sample_rate=TTS_SAMPLE_RATE,
-        put_accent=True,
-        put_yo=True,
-    )
-    arr = np.clip(np.asarray(audio.detach().cpu().numpy(), dtype=np.float32), -1, 1)
-    return (arr * 32767.0).astype("<i2").tobytes()
+def synthesize_sync(voice_obj, text: str) -> bytes:
+    arr, _ = _piper_synth_int16(voice_obj, text)
+    return arr.tobytes()
 
 
 # ---------------------------------------------------------------------------
@@ -216,18 +207,18 @@ async def one_run(
     if t_first_token is None:
         t_first_token = t_first_sentence
 
-    # Silero can't synthesize empty strings; guard.
+    # Piper rejects empty input; guard.
     if not first_sentence.strip():
         first_sentence = "Хорошо."
 
-    # 3. TTS (serialized, mirrors bot's in-process single-locked Silero) --
+    # 3. TTS (serialized, mirrors bot's in-process single-locked Piper) ---
     async with tts_lock:
         t_tts_wait_end = time.perf_counter()
         try:
             await asyncio.to_thread(synthesize_sync, model, first_sentence)
         except Exception as e:
             raise RuntimeError(
-                f"silero synth failed for text={first_sentence!r}: "
+                f"piper synth failed for text={first_sentence!r}: "
                 f"{type(e).__name__}: {e}"
             ) from e
         t_tts_end = time.perf_counter()
@@ -236,9 +227,9 @@ async def one_run(
         "idx": idx,
         "transcript": transcript,
         "reply": first_sentence,
-        # The realistic "first-audio" instant in production is right when Silero
+        # The realistic "first-audio" instant in production is right when Piper
         # *starts* synthesizing — TTS audio could be streamed out as it's produced.
-        # Silero v5 doesn't actually stream; we report both the start and end.
+        # Piper does stream per chunk; we report both the start and end.
         "e2e_first_audio_start_s": t_tts_wait_end - t0,
         "e2e_first_audio_ready_s": t_tts_end - t0,
         "stt_s": t_stt - t0,
@@ -352,11 +343,17 @@ def print_summary_table(all_results: dict[int, list[dict]]) -> None:
 
 
 async def amain(args: argparse.Namespace) -> None:
-    print("=== loading silero ===")
-    model = await asyncio.to_thread(load_silero)
+    print(f"=== loading piper voice ({TTS_VOICE}) ===")
+    model = await asyncio.to_thread(load_piper, TTS_VOICE)
+
+    if INPUT_VOICE == TTS_VOICE:
+        input_voice_obj = model
+    else:
+        print(f"=== loading piper input voice ({INPUT_VOICE}) ===")
+        input_voice_obj = await asyncio.to_thread(load_piper, INPUT_VOICE)
 
     print("=== preparing inputs ===")
-    wavs = await asyncio.to_thread(prepare_inputs, model)
+    wavs = await asyncio.to_thread(prepare_inputs, input_voice_obj)
     print(f"  {len(wavs)} prompts ready in {INPUTS_DIR}")
 
     tts_lock = asyncio.Lock()

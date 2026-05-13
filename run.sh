@@ -58,5 +58,5 @@ if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx 'gemma3:4b'; then
     ollama pull gemma3:4b
 fi
 
-echo "[run] launching bot.py (Silero TTS loads in-process)"
+echo "[run] launching bot.py (Piper TTS loads in-process)"
 uv run python bot.py

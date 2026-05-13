@@ -1,9 +1,9 @@
-"""Local voice assistant: mic -> Whisper -> Gemma -> Silero -> speakers.
+"""Local voice assistant: mic -> Whisper -> Gemma -> Piper -> speakers.
 
 Local services expected to be running:
   - Whisper:  http://127.0.0.1:8000  (servers/whisper_server.py, model=whisper-large-v3-turbo)
   - Ollama:   http://127.0.0.1:11434 (ollama serve; model gemma3:4b)
-  - Silero:   in-process (loaded by silero_tts_service)
+  - Piper:    in-process (loaded by piper_tts_service)
 """
 from __future__ import annotations
 
@@ -29,15 +29,15 @@ from pipecat.transports.local.audio import (
     LocalAudioTransportParams,
 )
 
-from silero_tts_service import SileroTTSService
+from piper_tts_service import PiperTTSService
 
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8000/v1")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1")
 
 LLM_MODEL = os.environ.get("LLM_MODEL", "gemma3:4b")
 STT_MODEL = os.environ.get("STT_MODEL", "small")
-TTS_VOICE = os.environ.get("TTS_VOICE", "kseniya")
-TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
+TTS_VOICE = os.environ.get("TTS_VOICE", "ru_RU-irina-medium")
+TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "22050"))
 GREET = os.environ.get("GREET", "1") != "0"
 
 SYSTEM_PROMPT = (
@@ -74,7 +74,7 @@ async def main() -> None:
         settings=OpenAILLMService.Settings(model=LLM_MODEL),
     )
 
-    tts = SileroTTSService(
+    tts = PiperTTSService(
         voice=TTS_VOICE,
         sample_rate=TTS_SAMPLE_RATE,
     )

@@ -64,14 +64,14 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
-from silero_tts_service import SileroTTSService
+from piper_tts_service import PiperTTSService
 
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8000/v1")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "gemma3:4b")
 STT_MODEL = os.environ.get("STT_MODEL", "small")
-TTS_VOICE = os.environ.get("TTS_VOICE", "kseniya")
-TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
+TTS_VOICE = os.environ.get("TTS_VOICE", "ru_RU-irina-medium")
+TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "22050"))
 WS_SAMPLE_RATE = 16000
 
 SYSTEM_PROMPT = os.environ.get(
@@ -179,7 +179,7 @@ def build_pipeline(websocket: WebSocket) -> PipelineTask:
         settings=OpenAILLMService.Settings(model=LLM_MODEL),
     )
 
-    tts = SileroTTSService(voice=TTS_VOICE, sample_rate=TTS_SAMPLE_RATE)
+    tts = PiperTTSService(voice=TTS_VOICE, sample_rate=TTS_SAMPLE_RATE)
 
     context = LLMContext(messages=[{"role": "system", "content": SYSTEM_PROMPT}])
     aggregators = LLMContextAggregatorPair(context)

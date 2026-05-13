@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CUDA launcher.
 # Brings up Ollama in Docker + the native faster-whisper server, ensures
-# gemma3:4b is pulled, then runs bot.py on the host. On exit (clean or
+# gemma4:e2b is pulled, then runs bot.py on the host. On exit (clean or
 # Ctrl+C) tears everything down. Set KEEP_COMPOSE=1 to leave Ollama up.
 #
 # Host requirements:
@@ -90,10 +90,10 @@ for i in $(seq 1 60); do
     fi
 done
 
-echo "[cuda] ensuring gemma3:4b is pulled..."
-if ! curl -fs http://127.0.0.1:11434/api/tags | grep -q '"gemma3:4b"'; then
-    echo "[cuda]   pulling gemma3:4b (this may take a few minutes)..."
-    docker compose -f "$COMPOSE_FILE" exec -T ollama ollama pull gemma3:4b
+echo "[cuda] ensuring gemma4:e2b is pulled..."
+if ! curl -fs http://127.0.0.1:11434/api/tags | grep -q '"gemma4:e2b"'; then
+    echo "[cuda]   pulling gemma4:e2b (this may take a few minutes)..."
+    docker compose -f "$COMPOSE_FILE" exec -T ollama ollama pull gemma4:e2b
 fi
 
 export WHISPER_URL="${WHISPER_URL:-http://127.0.0.1:8000/v1}"

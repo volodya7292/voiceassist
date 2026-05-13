@@ -12,7 +12,7 @@ directly so we can fan out N simultaneous "users" from one process:
                            -> TTS (Piper, in-process, serialized)
 
 Pre-conditions: the Whisper server is running (servers/whisper_server.py) and
-Ollama has gemma3:4b loaded. Run from the repo root via ``uv run python
+Ollama has gemma4:e2b loaded. Run from the repo root via ``uv run python
 loadtest.py``.
 
 Notes on serialization:
@@ -42,7 +42,7 @@ import soundfile as sf
 
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8000/v1")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1")
-LLM_MODEL = os.environ.get("LLM_MODEL", "gemma3:4b")
+LLM_MODEL = os.environ.get("LLM_MODEL", "gemma4:e2b")
 # Wire-level model name. The native whisper_server uses the env-side
 # WHISPER_MODEL (faster-whisper) or WHISPER_MODEL_REPO (mlx-whisper) to choose
 # what to load; the request `model` field is ignored on both stacks, so this

@@ -26,6 +26,8 @@ import asyncio
 import json
 import logging
 import os
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -87,7 +89,33 @@ log = logging.getLogger("webui")
 WEBUI_DIR = Path(__file__).parent
 STATIC_DIR = WEBUI_DIR / "static"
 
-app = FastAPI(title="voiceassist webui")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Preload the heavy Pipecat models on server start.
+
+    Without this, the first WebSocket connection blocks for ~100-200ms while
+    SileroVADAnalyzer and LocalSmartTurnAnalyzerV3 each cold-load their ONNX
+    models from disk. With this, both model files are in OS page cache and
+    their ONNX runtimes have been touched before the user clicks Start.
+    """
+
+    def _warm_in_thread() -> None:
+        from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import (
+            LocalSmartTurnAnalyzerV3,
+        )
+
+        SileroVADAnalyzer(params=VADParams(stop_secs=0.5))
+        LocalSmartTurnAnalyzerV3()
+
+    log.info("preloading pipecat VAD + smart-turn models...")
+    t0 = time.perf_counter()
+    await asyncio.to_thread(_warm_in_thread)
+    log.info(f"  preloaded in {time.perf_counter() - t0:.2f}s")
+    yield
+
+
+app = FastAPI(title="voiceassist webui", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 

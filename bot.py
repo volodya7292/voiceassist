@@ -33,6 +33,7 @@ from pipecat.transports.local.audio import (
     LocalAudioTransportParams,
 )
 
+from system_prompt import load_system_prompt
 from tts_backends import build_tts
 
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8000/v1")
@@ -43,12 +44,7 @@ STT_MODEL = os.environ.get("STT_MODEL", "small")
 TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
 GREET = os.environ.get("GREET", "1") != "0"
 
-SYSTEM_PROMPT = (
-    "Ты дружелюбный голосовой помощник, который отвечает по-русски. "
-    "Отвечай одним или двумя короткими предложениями. "
-    "Выводи только обычный текст: без markdown, без списков, без эмодзи, "
-    "без блоков кода и без специальных символов. Твой ответ будет произнесён вслух."
-)
+SYSTEM_PROMPT = os.environ.get("SYSTEM_PROMPT") or load_system_prompt()
 
 
 async def main() -> None:

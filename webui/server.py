@@ -67,6 +67,7 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
+from system_prompt import load_system_prompt
 from tts_backends import build_tts
 
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8000/v1")
@@ -76,12 +77,7 @@ STT_MODEL = os.environ.get("STT_MODEL", "small")
 TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
 WS_SAMPLE_RATE = 16000
 
-SYSTEM_PROMPT = os.environ.get(
-    "SYSTEM_PROMPT",
-    "Ты дружелюбный голосовой помощник. "
-    "Отвечай по-русски одним или двумя короткими предложениями. "
-    "Только обычный текст, без markdown, без эмодзи, без специальных символов.",
-)
+SYSTEM_PROMPT = os.environ.get("SYSTEM_PROMPT") or load_system_prompt()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [webui] %(message)s")
 log = logging.getLogger("webui")

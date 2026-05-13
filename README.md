@@ -4,8 +4,8 @@ Local voice assistant. Open-weight models, no cloud. Two supported hosts:
 
 | host             | STT                                  | LLM (Ollama)        | TTS (default)                       |
 |------------------|--------------------------------------|---------------------|-------------------------------------|
-| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (single worker, Metal) | `gemma3:4b` (Metal) | `tts.intelliscrape.com` HTTP API, voice `danchenko` (Olena) |
-| Linux + NVIDIA   | `whisper-small` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (native Python, **N-worker pool on CUDA**) | `gemma3:4b` (Docker, CUDA) | `tts.intelliscrape.com` HTTP API, voice `danchenko` (Olena) |
+| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (single worker, Metal) | `gemma3:4b` (Metal) | `tts.intelliscrape.com` HTTP API, voice `serhii` |
+| Linux + NVIDIA   | `whisper-small` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (native Python, **N-worker pool on CUDA**) | `gemma3:4b` (Docker, CUDA) | `tts.intelliscrape.com` HTTP API, voice `serhii` |
 
 Offline fallback: `TTS_BACKEND=piper` swaps the remote API for in-process
 Piper ONNX (`ru_RU-irina-medium`, 22 kHz).
@@ -137,7 +137,7 @@ Override via environment variables (see `bot.py` for the full list):
 | `WHISPER_DEVICE`      | `auto` — `cuda` / `cpu` / `auto` for faster-whisper |
 | `WHISPER_COMPUTE`     | `float16` on cuda, `int8` on cpu |
 | `TTS_BACKEND`         | `intelliscrape` (remote API, default) or `piper` (offline ONNX) |
-| `TTS_VOICE`           | `olena` (alias for `danchenko`); also `serhii`, `yurii`/`tryus`, `volodymyr`/`andrienko` |
+| `TTS_VOICE`           | `serhii`; also `olena`/`danchenko`, `yurii`/`tryus`, `volodymyr`/`andrienko` |
 | `TTS_SAMPLE_RATE`     | `24000` |
 | `INTELLISCRAPE_TTS_TOKEN` | (no default) bearer token — load via `.env` at the repo root |
 | `INTELLISCRAPE_TTS_URL`   | `https://tts.intelliscrape.com` |

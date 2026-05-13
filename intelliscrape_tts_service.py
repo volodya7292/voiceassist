@@ -33,7 +33,7 @@ from pipecat.utils.tracing.service_decorators import traced_tts
 DEFAULT_BASE_URL = os.environ.get(
     "INTELLISCRAPE_TTS_URL", "https://tts.intelliscrape.com"
 )
-DEFAULT_VOICE = "danchenko"
+DEFAULT_VOICE = "serhii"
 DEFAULT_SAMPLE_RATE = 24000  # OPUS opus on this API decodes to 24 kHz mono
 
 

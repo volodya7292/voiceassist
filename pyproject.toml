@@ -17,7 +17,11 @@ dependencies = [
     "torch>=2.11.0",
     "torchaudio>=2.11.0",
 
-    "piper-tts>=1.3.0",
+    # Apple Silicon (CPU/Metal): Piper ONNX TTS, in-process.
+    "piper-tts>=1.3.0; sys_platform == 'darwin'",
+
+    # Linux / Windows (CUDA): Qwen3-TTS, in-process. Voice cloning.
+    "qwen-tts>=0.1.1; sys_platform != 'darwin'",
 
     # Apple Silicon: MLX backend for the local Whisper server.
     "mlx-whisper>=0.4.1; sys_platform == 'darwin'",

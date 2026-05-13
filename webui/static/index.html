@@ -136,6 +136,23 @@
   }
   button.toggle:disabled { opacity: 0.5; cursor: not-allowed; }
   button.toggle.on  { background: #e0464d; }
+  .voice-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--fg-dim);
+  }
+  .voice-row select {
+    background: #11141a;
+    color: var(--fg);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+    min-width: 160px;
+  }
+  .voice-row select:disabled { opacity: 0.55; cursor: not-allowed; }
   .hint { color: var(--fg-dim); font-size: 12px; text-align: center; }
   .err  { color: #ff6b6b; font-size: 13px; text-align: center; min-height: 1em; }
 </style>
@@ -150,18 +167,24 @@
     <div class="empty" id="empty">Click Start, then speak. The assistant can be interrupted mid-sentence — just start talking.</div>
   </main>
   <footer>
+    <div class="voice-row">
+      <label for="voice">voice</label>
+      <select id="voice"><option value="">loading…</option></select>
+    </div>
     <button class="toggle" id="toggle">Start</button>
     <div class="hint">Use headphones for clean barge-in.</div>
     <div class="err" id="err"></div>
   </footer>
 
 <script>
-const TTS_RATE = 22050;
+const TTS_RATE = 24000;
 const MIC_RATE = 16000;
+const VOICE_KEY = 'voiceassist.voice';
 
 const dot = document.getElementById('dot');
 const label = document.getElementById('label');
 const toggleBtn = document.getElementById('toggle');
+const voiceSelect = document.getElementById('voice');
 const errEl = document.getElementById('err');
 const logEl = document.getElementById('log');
 const emptyEl = document.getElementById('empty');
@@ -287,7 +310,8 @@ async function startSession() {
   source.connect(captureNode);
   // Intentionally not connecting captureNode -> destination (don't echo mic to speakers).
 
-  const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+  const voiceParam = voiceSelect.value ? '?voice=' + encodeURIComponent(voiceSelect.value) : '';
+  const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws' + voiceParam;
   ws = new WebSocket(wsUrl);
   ws.binaryType = 'arraybuffer';
 
@@ -365,6 +389,38 @@ async function stopSession() {
   botBubble = null;
 }
 
+// ---------------------------------------------------------------------------
+// Voice selector
+
+async function loadVoices() {
+  try {
+    const r = await fetch('/api/voices');
+    const data = await r.json();
+    const names = (data && Array.isArray(data.voices)) ? data.voices : [];
+    voiceSelect.innerHTML = '';
+    for (const name of names) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      voiceSelect.appendChild(opt);
+    }
+    const saved = localStorage.getItem(VOICE_KEY);
+    if (saved && names.includes(saved)) {
+      voiceSelect.value = saved;
+    }
+  } catch (e) {
+    voiceSelect.innerHTML = '<option value="">(unavailable)</option>';
+  }
+}
+
+voiceSelect.addEventListener('change', () => {
+  const v = voiceSelect.value;
+  localStorage.setItem(VOICE_KEY, v);
+  if (ws && ws.readyState === WebSocket.OPEN && v) {
+    ws.send(JSON.stringify({ type: 'set_voice', voice: v }));
+  }
+});
+
 toggleBtn.addEventListener('click', async () => {
   if (toggleBtn.classList.contains('on')) {
     toggleBtn.classList.remove('on');
@@ -378,6 +434,7 @@ toggleBtn.addEventListener('click', async () => {
 });
 
 setIndicator('', 'off');
+loadVoices();
 </script>
 </body>
 </html>

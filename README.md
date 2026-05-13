@@ -4,8 +4,8 @@ Local voice assistant. Open-weight models, no cloud. Two supported hosts:
 
 | host             | STT                                  | LLM (Ollama)        | TTS (default)                       |
 |------------------|--------------------------------------|---------------------|-------------------------------------|
-| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (single worker, Metal) | `gemma4:e2b` (Metal) | `tts.intelliscrape.com` HTTP API, voice `serhii` |
-| Linux + NVIDIA   | `whisper-small` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (native Python, **N-worker pool on CUDA**) | `gemma4:e2b` (Docker, CUDA) | `tts.intelliscrape.com` HTTP API, voice `serhii` |
+| Apple Silicon    | `whisper-large-v3-turbo` via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (single worker, Metal) | `gemma3:4b` (Metal) | `tts.intelliscrape.com` HTTP API, voice `serhii` |
+| Linux + NVIDIA   | `whisper-small` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (native Python, **N-worker pool on CUDA**) | `gemma3:4b` (Docker, CUDA) | `tts.intelliscrape.com` HTTP API, voice `serhii` |
 
 Offline fallback: `TTS_BACKEND=piper` swaps the remote API for in-process
 Piper ONNX (`ru_RU-irina-medium`, 22 kHz).
@@ -31,7 +31,7 @@ Without a token, switch to the offline fallback: `TTS_BACKEND=piper`.
 ```bash
 brew install portaudio                  # required for pyaudio
 uv sync                                 # creates .venv and installs all deps
-ollama pull gemma4:e2b                   # ~7 GB
+ollama pull gemma3:4b                   # ~3 GB
 echo "INTELLISCRAPE_TTS_TOKEN=..." > .env
 ```
 
@@ -43,7 +43,7 @@ Whisper turbo weights (~1.6 GB) download automatically on first use into
 ```
 
 This boots the Whisper FastAPI shim on `:8000`, waits for it to be healthy,
-ensures `gemma4:e2b` is pulled, then launches `bot.py`. Press Ctrl+C to
+ensures `gemma3:4b` is pulled, then launches `bot.py`. Press Ctrl+C to
 quit; the script cleans up child processes.
 
 ## Setup — Linux + NVIDIA (CUDA)
@@ -62,7 +62,7 @@ uv sync               # PyTorch CUDA wheels resolved automatically on Linux
 
 `cuda/run.sh` boots Ollama via `cuda/docker-compose.yml`, launches the native
 `servers/whisper_server.py` (which loads `WHISPER_WORKERS` copies of
-`faster-whisper` on the GPU), waits for both to be healthy, pulls `gemma4:e2b`
+`faster-whisper` on the GPU), waits for both to be healthy, pulls `gemma3:4b`
 if missing, then runs `bot.py` on the host. TTS hits the intelliscrape
 HTTP API by default (no GPU work) — see the "TTS token" section above.
 
@@ -71,7 +71,7 @@ down manually: `docker compose -f cuda/docker-compose.yml down`.
 
 **STT concurrency.** `WHISPER_WORKERS=N` (default `2`) spawns N `WhisperModel`
 instances pinned to the same GPU. Each `WhisperModel` for `small` consumes
-~480 MB VRAM in fp16. On a 16 GB GPU sharing with `gemma4:e2b` you can
+~480 MB VRAM in fp16. On a 16 GB GPU sharing with `gemma3:4b` you can
 comfortably run 4–6 workers.
 
 ## Layout
@@ -120,7 +120,7 @@ curl -F "file=@some.wav" -F "language=ru" http://127.0.0.1:8000/v1/audio/transcr
 # Ollama LLM
 curl http://127.0.0.1:11434/v1/chat/completions \
     -H 'content-type: application/json' \
-    -d '{"model":"gemma4:e2b","messages":[{"role":"user","content":"Привет"}]}'
+    -d '{"model":"gemma3:4b","messages":[{"role":"user","content":"Привет"}]}'
 ```
 
 ## Configuration
@@ -129,7 +129,7 @@ Override via environment variables (see `bot.py` for the full list):
 
 | var                   | default                                  |
 |-----------------------|------------------------------------------|
-| `LLM_MODEL`           | `gemma4:e2b`                              |
+| `LLM_MODEL`           | `gemma3:4b`                              |
 | `STT_MODEL`           | `small` — wire-level only; the server picks the actual model from `WHISPER_MODEL` (faster-whisper) or `WHISPER_MODEL_REPO` (mlx-whisper) |
 | `WHISPER_MODEL_REPO`  | `mlx-community/whisper-large-v3-turbo` — Mac MLX server's actual model |
 | `WHISPER_MODEL`       | `small` — faster-whisper short name or full HF repo path |

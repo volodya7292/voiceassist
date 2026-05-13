@@ -23,7 +23,8 @@ def _resolve_voice(name: str) -> str:
     return VOICE_ALIASES.get(name.lower(), name)
 
 
-def build_tts(*, sample_rate: int) -> TTSService:
+def build_tts(*, sample_rate: int, voice: str | None = None) -> TTSService:
+    """Build a TTS service. `voice` overrides the env-supplied default."""
     backend = os.environ.get("TTS_BACKEND", "intelliscrape").lower()
 
     if backend in {"intelliscrape", "api", "remote"}:
@@ -32,14 +33,14 @@ def build_tts(*, sample_rate: int) -> TTSService:
             IntelliscrapeTTSService,
         )
 
-        voice = _resolve_voice(os.environ.get("TTS_VOICE", DEFAULT_VOICE))
-        return IntelliscrapeTTSService(voice=voice, sample_rate=sample_rate)
+        raw = voice or os.environ.get("TTS_VOICE", DEFAULT_VOICE)
+        return IntelliscrapeTTSService(voice=_resolve_voice(raw), sample_rate=sample_rate)
 
     if backend == "piper":
         from piper_tts_service import PiperTTSService
 
         return PiperTTSService(
-            voice=os.environ.get("TTS_VOICE", "ru_RU-irina-medium"),
+            voice=voice or os.environ.get("TTS_VOICE", "ru_RU-irina-medium"),
             sample_rate=sample_rate,
         )
 

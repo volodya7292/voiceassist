@@ -67,12 +67,14 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
+import httpx
+
 from system_prompt import load_system_prompt
-from tts_backends import build_tts
+from tts_backends import VOICE_ALIASES, build_tts
 
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8000/v1")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1")
-LLM_MODEL = os.environ.get("LLM_MODEL", "gemma4:e2b")
+LLM_MODEL = os.environ.get("LLM_MODEL", "gemma3:4b")
 STT_MODEL = os.environ.get("STT_MODEL", "small")
 TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
 WS_SAMPLE_RATE = 16000
@@ -92,12 +94,18 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 class JsonPcmSerializer(FrameSerializer):
     """Custom serializer: raw PCM bytes for audio, JSON for control frames.
 
+    Client may send JSON control messages on the text channel; currently the
+    only one understood is `{"type":"set_voice","voice":"..."}`, which mutates
+    the bound TTS service in place so the next synthesized sentence uses the
+    new voice (no pipeline restart).
+
     See module docstring for the wire format.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, tts_service=None) -> None:
         super().__init__()
         self._in_sample_rate = WS_SAMPLE_RATE
+        self._tts_service = tts_service
 
     async def setup(self, frame: StartFrame) -> None:
         if frame.audio_in_sample_rate:
@@ -137,11 +145,29 @@ class JsonPcmSerializer(FrameSerializer):
                 sample_rate=self._in_sample_rate,
                 num_channels=1,
             )
-        # Browser doesn't send text frames at the moment.
+        # Text frame: JSON control message.
+        if isinstance(data, str):
+            try:
+                msg = json.loads(data)
+            except json.JSONDecodeError:
+                return None
+            if msg.get("type") == "set_voice":
+                new_voice = (msg.get("voice") or "").strip()
+                setter = getattr(self._tts_service, "set_voice", None)
+                if new_voice and setter is not None:
+                    setter(new_voice)
+                elif new_voice:
+                    log.warning(
+                        f"set_voice request ignored: {type(self._tts_service).__name__} "
+                        f"doesn't support live voice change"
+                    )
         return None
 
 
-def build_pipeline(websocket: WebSocket) -> PipelineTask:
+def build_pipeline(websocket: WebSocket, voice: str | None = None) -> PipelineTask:
+    # Build TTS first so the serializer can route set_voice messages to it.
+    tts = build_tts(sample_rate=TTS_SAMPLE_RATE, voice=voice)
+
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
         params=FastAPIWebsocketParams(
@@ -150,7 +176,7 @@ def build_pipeline(websocket: WebSocket) -> PipelineTask:
             audio_in_sample_rate=WS_SAMPLE_RATE,
             audio_out_sample_rate=TTS_SAMPLE_RATE,
             add_wav_header=False,
-            serializer=JsonPcmSerializer(),
+            serializer=JsonPcmSerializer(tts_service=tts),
         ),
     )
 
@@ -176,8 +202,6 @@ def build_pipeline(websocket: WebSocket) -> PipelineTask:
         base_url=OLLAMA_URL,
         settings=OpenAILLMService.Settings(model=LLM_MODEL),
     )
-
-    tts = build_tts(sample_rate=TTS_SAMPLE_RATE)
 
     context = LLMContext(messages=[{"role": "system", "content": SYSTEM_PROMPT}])
     aggregators = LLMContextAggregatorPair(context)
@@ -228,11 +252,53 @@ async def health():
     }
 
 
+@app.get("/api/voices")
+async def voices():
+    """Return the list of voice names available for the TTS selector.
+
+    Tries the upstream intelliscrape /voices endpoint first; falls back to
+    the static alias map if upstream is unreachable.
+    """
+    base = os.environ.get("INTELLISCRAPE_TTS_URL", "https://tts.intelliscrape.com").rstrip("/")
+    token = os.environ.get("INTELLISCRAPE_TTS_TOKEN", "")
+    if token:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as c:
+                r = await c.get(
+                    f"{base}/voices",
+                    headers={"authorization": f"Bearer {token}"},
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    # Normalize: support [str], {"voices":[...]}, or [{"name":...}]
+                    if isinstance(data, list):
+                        names = [
+                            v if isinstance(v, str) else v.get("name") or v.get("id")
+                            for v in data
+                        ]
+                    elif isinstance(data, dict) and "voices" in data:
+                        raw = data["voices"]
+                        names = [
+                            v if isinstance(v, str) else v.get("name") or v.get("id")
+                            for v in raw
+                        ]
+                    else:
+                        names = []
+                    names = [n for n in names if n]
+                    if names:
+                        return {"voices": sorted(set(names))}
+        except Exception as e:
+            log.warning(f"/api/voices: upstream fetch failed: {e}")
+    # Fallback: the static alias keys (these are the personas, not API voices)
+    return {"voices": sorted(set(VOICE_ALIASES.values()))}
+
+
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
     await websocket.accept()
-    log.info("client connected")
-    task = build_pipeline(websocket)
+    voice = websocket.query_params.get("voice") or None
+    log.info(f"client connected (voice={voice or 'default'})")
+    task = build_pipeline(websocket, voice=voice)
     runner = PipelineRunner(handle_sigint=False)
     try:
         await runner.run(task)

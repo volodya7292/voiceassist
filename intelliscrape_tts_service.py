@@ -74,6 +74,14 @@ class IntelliscrapeTTSService(TTSService):
     def can_generate_metrics(self) -> bool:
         return True
 
+    def set_voice(self, voice: str) -> None:
+        """Swap the active voice. Takes effect on the next synthesis call."""
+        voice = (voice or "").strip()
+        if not voice or voice == self._voice:
+            return
+        logger.info(f"intelliscrape: voice {self._voice} -> {voice}")
+        self._voice = voice
+
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self._request_timeout_s)

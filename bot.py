@@ -2,7 +2,7 @@
 
 Local services expected to be running:
   - Whisper:  http://127.0.0.1:8000  (servers/whisper_server.py)
-  - Ollama:   http://127.0.0.1:11434 (ollama serve; model gemma4:e2b)
+  - Ollama:   http://127.0.0.1:11434 (ollama serve; model gemma3:4b)
   - TTS:      remote intelliscrape API by default (see tts_backends.py);
               `TTS_BACKEND=piper` switches to in-process Piper.
 """
@@ -39,7 +39,7 @@ from tts_backends import build_tts
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8000/v1")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1")
 
-LLM_MODEL = os.environ.get("LLM_MODEL", "gemma4:e2b")
+LLM_MODEL = os.environ.get("LLM_MODEL", "gemma3:4b")
 STT_MODEL = os.environ.get("STT_MODEL", "small")
 TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
 GREET = os.environ.get("GREET", "1") != "0"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Apple Silicon launcher.
-# Brings up the local Whisper FastAPI shim, ensures gemma4:e2b is pulled in
+# Brings up the local Whisper FastAPI shim, ensures gemma3:4b is pulled in
 # Ollama, then runs bot.py. When this script exits (cleanly or via Ctrl+C),
 # every background process it started is torn down.
 set -euo pipefail
@@ -52,10 +52,10 @@ for i in $(seq 1 120); do
     fi
 done
 
-echo "[run] checking gemma4:e2b is pulled..."
-if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx 'gemma4:e2b'; then
-    echo "[run] pulling gemma4:e2b..."
-    ollama pull gemma4:e2b
+echo "[run] checking gemma3:4b is pulled..."
+if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx 'gemma3:4b'; then
+    echo "[run] pulling gemma3:4b..."
+    ollama pull gemma3:4b
 fi
 
 echo "[run] launching bot.py (Piper TTS loads in-process)"

@@ -1,7 +1,9 @@
 """TTS backend selector.
 
-Default: intelliscrape (remote API, works on any host). Set
-`TTS_BACKEND=piper` for offline fallback via the local Piper ONNX model.
+Default: supertonic (local Supertonic v3 ONNX; multilingual + expressive
+tags `<laugh>`/`<breath>`/`<sigh>`). Other backends:
+  - `TTS_BACKEND=intelliscrape` — remote API (works on any host).
+  - `TTS_BACKEND=piper` — offline fallback via local Piper ONNX.
 """
 from __future__ import annotations
 
@@ -9,14 +11,17 @@ import os
 
 from pipecat.services.tts_service import TTSService
 
-# Friendly persona names -> the API's voice name (surname-based clones).
-# Lets the user write TTS_VOICE=olena instead of TTS_VOICE=danchenko.
+# Friendly persona names -> the intelliscrape API's voice name.
 VOICE_ALIASES = {
     "serhii": "serhii",
     "yurii": "tryus",
     "olena": "danchenko",
     "volodymyr": "andrienko",
 }
+
+# Supertonic voice style IDs (5 female + 5 male). Default: F5 (soft, soothing).
+SUPERTONIC_VOICES = ("F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5")
+SUPERTONIC_DEFAULT_VOICE = "F5"
 
 
 def _resolve_voice(name: str) -> str:
@@ -25,7 +30,15 @@ def _resolve_voice(name: str) -> str:
 
 def build_tts(*, sample_rate: int, voice: str | None = None) -> TTSService:
     """Build a TTS service. `voice` overrides the env-supplied default."""
-    backend = os.environ.get("TTS_BACKEND", "intelliscrape").lower()
+    backend = os.environ.get("TTS_BACKEND", "supertonic").lower()
+
+    if backend in {"supertonic", "supertonic-3", "s3"}:
+        from supertonic_tts_service import SupertonicTTSService
+
+        raw = (voice or os.environ.get("TTS_VOICE", SUPERTONIC_DEFAULT_VOICE)).strip()
+        if raw not in SUPERTONIC_VOICES:
+            raw = SUPERTONIC_DEFAULT_VOICE
+        return SupertonicTTSService(voice=raw, sample_rate=sample_rate)
 
     if backend in {"intelliscrape", "api", "remote"}:
         from intelliscrape_tts_service import (
@@ -45,5 +58,5 @@ def build_tts(*, sample_rate: int, voice: str | None = None) -> TTSService:
         )
 
     raise ValueError(
-        f"unknown TTS_BACKEND={backend!r}; supported: intelliscrape, piper"
+        f"unknown TTS_BACKEND={backend!r}; supported: supertonic, intelliscrape, piper"
     )

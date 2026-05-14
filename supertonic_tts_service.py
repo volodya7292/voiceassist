@@ -9,7 +9,9 @@ execution providers (CoreML/CUDA if its EP wheel is installed).
 Voices: 10 fixed styles (F1-F5 + M1-M5). Expressive tags `<laugh>`,
 `<breath>`, `<sigh>` are honored inline in the input text.
 
-Sample rate is fixed by the model (24 kHz); Pipecat resamples if needed.
+Sample rate is fixed by the model (44.1 kHz); Pipecat's output transport
+resamples to its `audio_out_sample_rate` automatically, so callers don't
+need to know the native rate.
 """
 from __future__ import annotations
 
@@ -26,7 +28,7 @@ from pipecat.utils.tracing.service_decorators import traced_tts
 
 DEFAULT_VOICE = "F5"
 DEFAULT_LANG = "ru"
-DEFAULT_SAMPLE_RATE = 24000  # Supertonic v3 outputs 24 kHz mono
+NATIVE_SAMPLE_RATE = 44100  # fixed by the supertonic-3 vocoder
 SUPPORTED_VOICES = ("F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5")
 
 
@@ -38,14 +40,23 @@ class SupertonicTTSService(TTSService):
         *,
         voice: str = DEFAULT_VOICE,
         lang: str = DEFAULT_LANG,
-        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        sample_rate: int | None = None,
         total_steps: int = 8,
         speed: float = 1.05,
         chunk_ms: int = 100,
         **kwargs,
     ) -> None:
+        # The vocoder is fixed at 44.1 kHz; tell Pipecat the real rate so its
+        # output transport resamples cleanly to audio_out_sample_rate. Any
+        # caller-supplied sample_rate is ignored (the build_tts helper passes
+        # the transport's target rate, which is the wrong layer to plumb here).
+        if sample_rate is not None and sample_rate != NATIVE_SAMPLE_RATE:
+            logger.info(
+                f"supertonic: ignoring sample_rate={sample_rate}; "
+                f"using native {NATIVE_SAMPLE_RATE} (resampled downstream)"
+            )
         super().__init__(
-            sample_rate=sample_rate,
+            sample_rate=NATIVE_SAMPLE_RATE,
             push_start_frame=True,
             push_stop_frames=True,
             settings=TTSSettings(model="supertonic-3", voice=voice, language=lang),
@@ -60,7 +71,7 @@ class SupertonicTTSService(TTSService):
         self._lang = lang
         self._total_steps = total_steps
         self._speed = speed
-        self._chunk_samples = max(1, int(sample_rate * chunk_ms / 1000))
+        self._chunk_samples = max(1, int(NATIVE_SAMPLE_RATE * chunk_ms / 1000))
 
         self._tts = None
         self._style = None

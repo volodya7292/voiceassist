@@ -78,8 +78,12 @@ WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8000/v1")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "gemma3:4b")
 STT_MODEL = os.environ.get("STT_MODEL", "small")
+TTS_BACKEND = os.environ.get("TTS_BACKEND", "supertonic").lower()
 TTS_SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
 WS_SAMPLE_RATE = 16000
+
+# Supertonic exposes 5 female voice styles (the bot persona is female).
+SUPERTONIC_F_VOICES = ("F1", "F2", "F3", "F4", "F5")
 
 SYSTEM_PROMPT = os.environ.get("SYSTEM_PROMPT") or load_system_prompt()
 
@@ -274,7 +278,7 @@ async def health():
         "ok": True,
         "llm_model": LLM_MODEL,
         "stt_model": STT_MODEL,
-        "tts_backend": os.environ.get("TTS_BACKEND", "intelliscrape"),
+        "tts_backend": TTS_BACKEND,
         "tts_sample_rate": TTS_SAMPLE_RATE,
         "ws_sample_rate": WS_SAMPLE_RATE,
     }
@@ -284,9 +288,12 @@ async def health():
 async def voices():
     """Return the list of voice names available for the TTS selector.
 
-    Tries the upstream intelliscrape /voices endpoint first; falls back to
-    the static alias map if upstream is unreachable.
+    For Supertonic (default): the 5 female voice styles F1-F5.
+    For intelliscrape: upstream /voices endpoint, with static alias-map fallback.
     """
+    if TTS_BACKEND in {"supertonic", "supertonic-3", "s3"}:
+        return {"voices": list(SUPERTONIC_F_VOICES)}
+
     base = os.environ.get("INTELLISCRAPE_TTS_URL", "https://tts.intelliscrape.com").rstrip("/")
     token = os.environ.get("INTELLISCRAPE_TTS_TOKEN", "")
     if token:
